@@ -36,9 +36,11 @@
   (str (swap! current-id inc)))
 
 (defn eval-expr
-  "Execute :expr in nREPL on given :host (defaults to localhost)
-  and :port. Returns map with :vals. Prints any output to *out*."
-  [{:keys [host port expr]}]
+  "Execute `:expr` in nREPL on given `:host` (defaults to `localhost`)
+  and `:port`.  Prints any output to `*out*`. If `debug` enabled(not `nil` or 
+  `false`), returns a map with `:vals,:outs, :errs`; if `debug` disabled,
+   returns a map only with `:vals`"
+  [{:keys [host port expr debug]}]
   (let [s (java.net.Socket. (or host "localhost") (coerce-long port))
         out (.getOutputStream s)
         in (java.io.PushbackInputStream. (.getInputStream s))
@@ -47,7 +49,9 @@
         {session :new-session} (read-msg (b/read-bencode in))
         id (next-id)
         _ (b/write-bencode out {"op" "eval" "code" expr "id" id "session" session})]
-    (loop [values []]
+    (loop [values []
+           printouts []
+           err-msgs []]
       (let [{:keys [status out err value]} (read-reply in session id)]
         (when out
           (print out)
@@ -57,5 +61,11 @@
             (print err)
             (flush)))
         (if (= status ["done"])
-          {:vals values}
-          (recur (cond-> values value (conj value))))))))
+          (cond-> {:vals values}
+            debug (assoc :outs printouts :errs err-msgs))
+          (recur (cond-> values
+                   value (conj value))
+                 (cond-> printouts
+                   out (conj out))
+                 (cond-> err-msgs
+                   err (conj err))))))))
